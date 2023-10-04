@@ -445,11 +445,11 @@ class JinjaPluginIntercept(MutableMapping):
 
         self._pluginloader = pluginloader
 
-        # Jinja environment's mapping of known names (initially just J2 builtins)
+        # cache of resolved plugins
         self._delegatee = delegatee
 
-        # our names take precedence over Jinja's, but let things we've tried to resolve skip the pluginloader
-        self._seen_it = set()
+        # track loaded plugins here as cache above includes 'jinja2' filters but ours should override
+        self._loaded_builtins = set()
 
     def __getitem__(self, key):
 
@@ -457,10 +457,7 @@ class JinjaPluginIntercept(MutableMapping):
             raise ValueError('key must be a string, got %s instead' % type(key))
 
         original_exc = None
-        if key not in self._seen_it:
-            # this looks too early to set this- it isn't. Setting it here keeps requests for Jinja builtins from
-            # going through the pluginloader more than once, which is extremely slow for something that won't ever succeed.
-            self._seen_it.add(key)
+        if key not in self._loaded_builtins:
             plugin = None
             try:
                 plugin = self._pluginloader.get(key)
@@ -474,12 +471,12 @@ class JinjaPluginIntercept(MutableMapping):
             if plugin:
                 # set in filter cache and avoid expensive plugin load
                 self._delegatee[key] = plugin.j2_function
+                self._loaded_builtins.add(key)
 
         # raise template syntax error if we could not find ours or jinja2 one
         try:
             func = self._delegatee[key]
         except KeyError as e:
-            self._seen_it.remove(key)
             raise TemplateSyntaxError('Could not load "%s": %s' % (key, to_native(original_exc or e)), 0)
 
         # if i do have func and it is a filter, it nees wrapping
